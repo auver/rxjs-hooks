@@ -1,7 +1,7 @@
 import React from 'react'
 import { create, act } from 'react-test-renderer'
 import * as Sinon from 'sinon'
-import { of, Observable, Observer, Subject } from 'rxjs'
+import { of, Observable, Observer, Subject, asapScheduler } from 'rxjs'
 
 import { find } from './find'
 import { useObservable } from '../use-observable'
@@ -27,9 +27,6 @@ describe('useObservable specs', () => {
     const fixtureNode = <Fixture />
 
     const testRenderer = create(fixtureNode)
-    expect(find(testRenderer.root, 'h1').children).toEqual([])
-    act(() => testRenderer.update(fixtureNode))
-
     expect(find(testRenderer.root, 'h1').children).toEqual([`${value}`])
   })
 
@@ -37,16 +34,19 @@ describe('useObservable specs', () => {
     const initialValue = 2000
     const value = 100
     function Fixture() {
-      const value = useObservable(() => of(100), initialValue)
+      const value = useObservable(() => of(100, asapScheduler), initialValue)
       return <h1>{value}</h1>
     }
     const fixtureNode = <Fixture />
 
     const testRenderer = create(fixtureNode)
     expect(find(testRenderer.root, 'h1').children).toEqual([`${initialValue}`])
-    act(() => testRenderer.update(fixtureNode))
 
-    expect(find(testRenderer.root, 'h1').children).toEqual([`${value}`])
+    return Promise.resolve().then(() => {
+      act(() => testRenderer.update(fixtureNode))
+
+      expect(find(testRenderer.root, 'h1').children).toEqual([`${value}`])
+    })
   })
 
   it('should call teardown logic after unmount', () => {
@@ -143,9 +143,9 @@ describe('useObservable specs', () => {
     }
 
     const testRenderer = create(<Fixture {...props} />)
-    expect(spy.callCount).toBe(0)
-    expect(find(testRenderer.root, 'h1').children).toEqual([])
-    expect(find(testRenderer.root, 'div').children).toEqual([])
+    expect(spy.callCount).toBe(1)
+    expect(find(testRenderer.root, 'h1').children).toEqual([`${props.foo}`])
+    expect(find(testRenderer.root, 'div').children).toEqual([`${props.baz.foo}`])
     const newProps = { ...props, bar: 'new bar' }
     act(() => testRenderer.update(<Fixture {...newProps} />))
     // wait useEffect fired

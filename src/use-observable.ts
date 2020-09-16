@@ -1,8 +1,22 @@
-import { Observable, BehaviorSubject } from 'rxjs'
-import { useState, useEffect } from 'react'
+import { Observable, BehaviorSubject, Subscription } from 'rxjs'
+import { useState, useEffect, useRef } from 'react'
 import useConstant from 'use-constant'
 
 import { RestrictArray } from './type'
+
+function areInputsEqual(newInputs: ReadonlyArray<any> | undefined, lastInputs: ReadonlyArray<any> | undefined) {
+  if (!newInputs || !lastInputs || newInputs.length !== lastInputs.length) {
+    return false
+  }
+
+  for (let i = 0; i < newInputs.length; i++) {
+    if (newInputs[i] !== lastInputs[i]) {
+      return false
+    }
+  }
+
+  return true
+}
 
 export type InputFactory<State> = (state$: Observable<State>) => Observable<State>
 export type InputFactoryWithInputs<State, Inputs> = (
@@ -22,16 +36,18 @@ export function useObservable<State, Inputs extends ReadonlyArray<any>>(
   initialState?: State,
   inputs?: RestrictArray<Inputs>,
 ): State | null {
-  const [state, setState] = useState(typeof initialState !== 'undefined' ? initialState : null)
-
   const state$ = useConstant(() => new BehaviorSubject<State | undefined>(initialState))
   const inputs$ = useConstant(() => new BehaviorSubject<RestrictArray<Inputs> | undefined>(inputs))
+  const subscription = useRef<Subscription | undefined>(undefined)
+  const commmittedInputs = useRef<RestrictArray<Inputs> | undefined>(undefined)
 
-  useEffect(() => {
+  if (!areInputsEqual(inputs, commmittedInputs.current)) {
+    commmittedInputs.current = inputs
     inputs$.next(inputs)
-  }, inputs || [])
+  }
 
-  useEffect(() => {
+  const [state, setState] = useState(() => {
+    let currentState = typeof initialState !== 'undefined' ? initialState : null
     let output$: BehaviorSubject<State>
     if (inputs) {
       output$ = (inputFactory as (
@@ -43,15 +59,22 @@ export function useObservable<State, Inputs extends ReadonlyArray<any>>(
         state$,
       ) as BehaviorSubject<State>
     }
-    const subscription = output$.subscribe((value) => {
+
+    subscription.current = output$.subscribe((value) => {
+      currentState = value
       state$.next(value)
-      setState(value)
+      if (typeof setState !== 'undefined') {
+        setState(value)
+      }
     })
-    return () => {
-      subscription.unsubscribe()
-      inputs$.complete()
-      state$.complete()
-    }
+
+    return currentState
+  })
+
+  useEffect(() => () => {
+    subscription.current?.unsubscribe()
+    inputs$.complete()
+    state$.complete()
   }, []) // immutable forever
 
   return state
